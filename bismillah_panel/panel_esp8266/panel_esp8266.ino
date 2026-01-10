@@ -53,7 +53,6 @@ ESP8266WebServer server(80);
 OneWire oneWire(TEMP_PIN);
 DallasTemperature temp_sensor(&oneWire);
 LiquidCrystal_I2C lcd(0x27, 16, 2);
-BH1750 luxmeter;
 DHT DHT22_sensor(DHT_PIN, DHTTYPE);
 Adafruit_INA219 INA_1(0x40);
 
@@ -118,7 +117,6 @@ void connectWiFi() {
   lcd.setCursor(0, 1);
   lcd.print("started");
 }
-
 
 float read_voltage(float val) {
   return 1.71799432e-06 * (val * val * val) - 1.63616114e-04 * (val * val) +  2.50498137e-01 * val - 1.18494463e-01;
@@ -301,7 +299,6 @@ void setup() {
   digitalWrite(RELAY, HIGH);
 
   INA_1.begin();
-  luxmeter.begin();
   temp_sensor.begin();
   DHT22_sensor.begin();
   
