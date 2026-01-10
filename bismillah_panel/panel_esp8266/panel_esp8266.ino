@@ -9,6 +9,12 @@
 #include <BH1750.h>
 #include <DHT.h>
 
+#include <ESP8266WiFi.h>
+#include <ESP8266HTTPClient.h>
+#include <WiFiClientSecureBearSSL.h>
+#include <ArduinoJson.h>
+#include <ESP8266WebServer.h>
+
 #define V_MTR         A0
 #define TEMP_PIN      D0
 #define DHT_PIN       D3
@@ -17,11 +23,32 @@
 
 #define DHTTYPE       DHT22
 
-#define UPPER_TEMP    40
-#define LOWER_TEMP    35
+#define UPPER_TEMP    48
+#define LOWER_TEMP    43
 
 #define R             10
 #define Q             0.4
+
+#define WIFI_SSID     "YUDAPASHA"
+#define WIFI_PASS     "yuda543203"
+
+const char* URL_VIRA =
+"https://script.google.com/macros/s/AKfycbyVjr44kB2X8aRnKXSnZ-eKELAHoRh1UUMpRyH1OFGHpO_VkiGQ5jV94r5YLvUIysv_WQ/exec";
+
+const char* URL_HARLIN =
+"https://script.google.com/macros/s/AKfycbyYPdy1E8q-22umrS73s6uS5IKBeqwmqod1KXeX3SHQrDhxWv65l-f0rcpTj6oMrzkRKQ/exec";
+
+unsigned long lastSend = 0;
+#define SEND_INTERVAL 60000
+
+IPAddress localIP(192, 168, 100, 50);
+IPAddress gateway(192, 168, 100, 1);
+IPAddress subnet(255, 255, 255, 0);
+
+IPAddress dns1(8, 8, 8, 8);
+IPAddress dns2(8, 8, 4, 4);
+
+ESP8266WebServer server(80);
 
 OneWire oneWire(TEMP_PIN);
 DallasTemperature temp_sensor(&oneWire);
@@ -50,13 +77,48 @@ float Xt_c1[3] = {0};
 float Pt_c1[3] = {0};
 float Kt_c1;
 
-float lux, env_temp, hum;
+float lux = 0;
+float env_temp, hum;
 
 bool rly_state = 0;
 bool btn[2] = {1, 0};
 int8_t d_btn;
 
+unsigned long t[2] = {0};
+
 uint8_t state_panel = 0;
+
+void connectWiFi() {
+  if(!WiFi.config(localIP, gateway, subnet, dns1, dns2)) {
+    Serial.println("Failed to configure static IP");
+  }
+
+  WiFi.mode(WIFI_STA);
+  WiFi.begin(WIFI_SSID, WIFI_PASS);
+
+  Serial.print("Connecting WiFi");
+  lcd.setCursor(0, 0);
+  lcd.print("Connecting WiFi");
+  
+  while (WiFi.status() != WL_CONNECTED) {
+    delay(500);
+    Serial.print(".");
+  }
+  
+  Serial.println("\n✅ WiFi connected");
+  lcd.setCursor(0, 0);
+  lcd.print("Wifi Connected ");
+
+  server.on("/data", handleData);
+  server.begin();
+  Serial.println("HTTP server started");
+
+  lcd.setCursor(0, 0);
+  lcd.print("HTTP server");
+  lcd.setCursor(0, 1);
+  lcd.print("started");
+}
+
 
 float read_voltage(float val) {
   return 1.71799432e-06 * (val * val * val) - 1.63616114e-04 * (val * val) +  2.50498137e-01 * val - 1.18494463e-01;
@@ -67,9 +129,9 @@ float read_temp(DeviceAddress deviceaddress) {
   return tempC;
 }
 
-void kalman(float input, float *Xt, float *Pt, float &Kt) {
+void kalman(float input, float *Xt, float *Pt, float &Kt, float dt) {
   Xt[2] = Xt[0];
-  Pt[2] = Pt[0] + Q;
+  Pt[2] = Pt[0] + Q * dt;
   Kt = Pt[2] / (Pt[2] + R);
   
   Xt[1] = Xt[2] + (Kt * (input - Xt[2]));
@@ -81,21 +143,21 @@ void kalman(float input, float *Xt, float *Pt, float &Kt) {
 
 void render_voltage(float val) {
   lcd.setCursor(0, 1);
-  dtostrf(val, 4, 1, num);
+  dtostrf(val, 6, 2, num);
   sprintf(buff, "Teg: %sV", num);
   lcd.print(buff);
 }
 
 void render_current(float val) {
   lcd.setCursor(0, 1);
-  dtostrf(val, 4, 1, num);
+  dtostrf(val, 7, 1, num);
   sprintf(buff, "Arus: %smA", num);
   lcd.print(buff);
 }
 
 void render_power(float val) {
   lcd.setCursor(0, 1);
-  dtostrf(val, 4, 1, num);
+  dtostrf(val, 5, 2, num);
   sprintf(buff, "Power: %sW", num);
   lcd.print(buff);
 }
@@ -107,10 +169,10 @@ void render_temp(float val) {
   lcd.print(buff);
 }
 
-void render_ir(float val) {
+void render_lux(float val) {
   lcd.setCursor(0, 1);
-  dtostrf(val, 4, 1, num);
-  sprintf(buff, "IRR: %sW/m2", num);
+  dtostrf(val, 7, 1, num);
+  sprintf(buff, "Lux: %slx", num);
   lcd.print(buff);
 }
 
@@ -130,7 +192,7 @@ void render_hum(float val) {
 
 void menu() {
   lcd.setCursor(0, 0);
-  lcd.print("Panel Sendiri");
+  lcd.print("Panel Gabungan");
   switch(state_panel) {
     case 0:
       render_voltage(panel_sendiri.tegangan);
@@ -161,7 +223,7 @@ void menu() {
       }
       break;
     case 4:
-      render_ir(lux);
+      render_lux(lux);
       if(d_btn < 0) {
         state_panel++;
         lcd.clear();
@@ -184,11 +246,59 @@ void menu() {
   }
 }
 
+void sendToSheet(const char* url, const char* sheetName) {
+  if (WiFi.status() != WL_CONNECTED) return;
+
+  std::unique_ptr<BearSSL::WiFiClientSecure> client(new BearSSL::WiFiClientSecure);
+  client->setInsecure(); 
+
+  HTTPClient http;
+  http.begin(*client, url);
+  http.addHeader("Content-Type", "application/json");
+
+  StaticJsonDocument<512> doc;
+
+  doc["sheet"]        = sheetName;
+  doc["radiasi"]      = lux;
+  doc["suhu"]         = env_temp;
+  doc["kelembaban"]   = hum;
+  doc["status"]       = rly_state ? "Aktif" : "Non-Aktif";
+
+  doc["rf_suhu"]      = panel_sendiri.suhu_panel;
+  doc["rf_arus"]      = panel_sendiri.arus / 1000.0;
+  doc["rf_tegangan"]  = panel_sendiri.tegangan;
+  doc["rf_pout"]      = panel_sendiri.daya;
+
+  String payload;
+  serializeJson(doc, payload);
+
+  int code = http.POST(payload);
+
+  Serial.println("📤 " + String(sheetName));
+  Serial.println(payload);
+  Serial.print("HTTP: ");
+  Serial.println(code);
+
+  http.end();
+}
+
+void handleData() {
+  if(server.hasArg("value")) {
+    String value = server.arg("value");
+    lux = value.toFloat();
+    Serial.println("Received from ESP32: " + value);
+    server.send(200, "text/plain", "OK");
+  } else {
+    server.send(400, "text/plain", "No value");
+  }
+}
+
 void setup() {
-  // put your setup code here, to run once:
   pinMode(V_MTR, INPUT);
   pinMode(BTN, INPUT_PULLUP);
   pinMode(RELAY, OUTPUT);
+
+  digitalWrite(RELAY, HIGH);
 
   INA_1.begin();
   luxmeter.begin();
@@ -197,22 +307,29 @@ void setup() {
   
   lcd.init();
   lcd.backlight();
-  
+
   Serial.begin(115200);
+  delay(200);
+
+  connectWiFi();
+  lcd.clear();
 }
 
 void loop() {
-  // put your main code here, to run repeatedly:
+  server.handleClient();
+  
+  t[1] = millis();
+  float dt = ((float)t[1] - (float)t[0]) / 1000.0;
+  
   temp_sensor.requestTemperatures();
 
-  kalman(INA_1.getCurrent_mA(), Xt_c1, Pt_c1, Kt_c1);
+  kalman(INA_1.getCurrent_mA(), Xt_c1, Pt_c1, Kt_c1, dt);
 
   panel_sendiri.tegangan    = read_voltage(analogRead(V_MTR) / 10.0);
-  panel_sendiri.arus        = Xt_c1[1];
+  panel_sendiri.arus        = max(Xt_c1[1], 0.0f);
   panel_sendiri.daya        = panel_sendiri.tegangan * (panel_sendiri.arus / 1000.0);
   panel_sendiri.suhu_panel  = read_temp(temp6);
   
-  lux = luxmeter.readLightLevel() / 120.0;
   env_temp = DHT22_sensor.readTemperature();
   hum = DHT22_sensor.readHumidity();
   
@@ -230,5 +347,24 @@ void loop() {
   
   menu();
 
+  if (millis() - lastSend >= SEND_INTERVAL) {
+    lastSend = millis();
+
+    lcd.clear();
+    lcd.setCursor(0, 0);
+    lcd.print("Send to");
+
+    lcd.setCursor(0, 1);
+    lcd.print("VIRA_8266");
+    sendToSheet(URL_VIRA,   "VIRA_8266");
+
+    lcd.setCursor(0, 1);
+    lcd.print("HARLIN_8266");
+    sendToSheet(URL_HARLIN, "HARLIN_8266");
+
+    lcd.clear();
+  } 
+
   delay(10);
+  t[0] = t[1];
 }
