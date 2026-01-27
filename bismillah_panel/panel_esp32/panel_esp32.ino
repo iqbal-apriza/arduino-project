@@ -14,6 +14,9 @@
 #include <ArduinoJson.h>
 #include <WiFiClientSecure.h>
 
+#include "esp_bt.h"
+#include "esp_wifi.h"
+
 #define V_MTR1        36
 #define V_MTR2        39
 #define V_MTR3        34
@@ -33,14 +36,14 @@
 #define ALPHA         0.01
 #define ALPHA_F       0.5
 
-#define UPPER_TEMP    48
-#define LOWER_TEMP    43
+#define UPPER_TEMP    46
+#define LOWER_TEMP    41
 
 #define R             10
 #define Q             0.5
 
-#define WIFI_SSID     "YUDAPASHA"
-#define WIFI_PASS     "yuda543203"
+#define WIFI_SSID     "PanelBismillah"
+#define WIFI_PASS     "bismillah"
 
 const char* URL_VIRA =
 "https://script.google.com/macros/s/AKfycbyVjr44kB2X8aRnKXSnZ-eKELAHoRh1UUMpRyH1OFGHpO_VkiGQ5jV94r5YLvUIysv_WQ/exec";
@@ -48,16 +51,22 @@ const char* URL_VIRA =
 const char* URL_HARLIN =
 "https://script.google.com/macros/s/AKfycbyYPdy1E8q-22umrS73s6uS5IKBeqwmqod1KXeX3SHQrDhxWv65l-f0rcpTj6oMrzkRKQ/exec";
 
-
 const char* URL_AUL =
 "https://script.google.com/macros/s/AKfycbw_ED41QKOzKrdC6ibaJC1i7ZWOYWeFekUMfxfy0jfHiYGhe2RyRHAsckbbpPrbgzSF/exec";
 
 const char *serverURL =
-"http://192.168.100.50/data";
+"http://192.168.43.50/data";
 
 unsigned long lastSend = 0;
 unsigned long last_lux_send = 0;
 #define SEND_INTERVAL 60000
+
+IPAddress localIP(192, 168, 43, 51);
+IPAddress gateway(192, 168, 43, 1);
+IPAddress subnet(255, 255, 255, 0);
+
+IPAddress dns1(8, 8, 8, 8);
+IPAddress dns2(8, 8, 4, 4);
 
 OneWire oneWire(TEMP_PIN);
 DallasTemperature temp_sensor(&oneWire);
@@ -129,6 +138,10 @@ uint8_t state_menu = 0;
 uint8_t state_panel = 0;
 
 void connectWiFi() {
+  if(!WiFi.config(localIP, gateway, subnet, dns1, dns2)) {
+    Serial.println("Failed to configure static IP");
+  }
+  
   WiFi.mode(WIFI_STA);
   WiFi.begin(WIFI_SSID, WIFI_PASS);
 
@@ -144,6 +157,8 @@ void connectWiFi() {
   Serial.println("\n✅ WiFi connected");
   lcd.setCursor(0, 0);
   lcd.print("WiFi connected");
+
+  esp_wifi_set_protocol(WIFI_IF_STA, WIFI_PROTOCOL_11B | WIFI_PROTOCOL_11G);
 }
 
 void printAddress(DeviceAddress deviceAddress) {
@@ -254,6 +269,17 @@ void render_hum(float val) {
   dtostrf(val, 4, 1, num);
   sprintf(buff, "Hum: %s%%", num);
   lcd.print(buff);
+}
+
+void render_wifi() {
+  lcd.setCursor(0, 1);
+  if(WiFi.status() == WL_CONNECTED) {
+    long rssi = WiFi.RSSI();
+    sprintf(buff, "%5d dBm", (int)rssi);
+    lcd.print(buff);
+  } else {
+    lcd.print("WiFi lost");
+  }
 }
 
 void render_panel1() {
@@ -433,6 +459,16 @@ void menu() {
       lcd.print("Kelembaban");
       render_hum(hum);
       if(d_bt1 < 0) {
+        state_panel++;
+        state_menu = 0;
+        lcd.clear();
+      }
+      break;
+    case 6:
+      lcd.setCursor(0, 0);
+      lcd.print("WiFi Strength");
+      render_wifi();
+      if(d_bt1 < 0) {
         state_panel = 0;
         state_menu = 0;
         lcd.clear();
@@ -453,6 +489,7 @@ void sendToSheet(const char* url, const char* sheet) {
 
 
   HTTPClient http;
+  http.setTimeout(10000);
   http.begin(client, url);
   http.addHeader("Content-Type", "application/json");
 
@@ -528,6 +565,9 @@ void sendToSheet(const char* url, const char* sheet) {
 
 void setup() {
   // put your setup code here, to run once:
+  esp_bt_controller_disable();
+  esp_bt_controller_deinit();
+
   pinMode(V_MTR1, INPUT);
   pinMode(V_MTR2, INPUT);
   pinMode(V_MTR3, INPUT);
@@ -566,6 +606,13 @@ void setup() {
 
 void loop() {
   // put your main code here, to run repeatedly:
+  long rssi2 = WiFi.RSSI();
+  Serial.print(WiFi.status());
+  Serial.print(" | ");
+  Serial.println(rssi2);
+
+//  Serial.println(WiFi.localIP());
+  
   t1[1] = millis();
   t2[1] = millis();
   dt = ((float)t1[1] - (float)t1[0]) / 1000.0;
@@ -640,9 +687,10 @@ void loop() {
 
   menu();
 
-  if (millis() - last_lux_send >= 500 && WiFi.status() == WL_CONNECTED) {
+  if (millis() - last_lux_send >= 1000 && WiFi.status() == WL_CONNECTED) {
     last_lux_send = millis();
     HTTPClient http;
+    http.setTimeout(1500);
 
     String postData = "value=" + String(lux, 1);
 
