@@ -23,14 +23,14 @@
 
 #define DHTTYPE       DHT22
 
-#define UPPER_TEMP    48
-#define LOWER_TEMP    43
+#define UPPER_TEMP    46
+#define LOWER_TEMP    41
 
 #define R             10
 #define Q             0.4
 
-#define WIFI_SSID     "YUDAPASHA"
-#define WIFI_PASS     "yuda543203"
+#define WIFI_SSID     "PanelBismillah"
+#define WIFI_PASS     "bismillah"
 
 const char* URL_VIRA =
 "https://script.google.com/macros/s/AKfycbyVjr44kB2X8aRnKXSnZ-eKELAHoRh1UUMpRyH1OFGHpO_VkiGQ5jV94r5YLvUIysv_WQ/exec";
@@ -41,8 +41,8 @@ const char* URL_HARLIN =
 unsigned long lastSend = 0;
 #define SEND_INTERVAL 60000
 
-IPAddress localIP(192, 168, 100, 50);
-IPAddress gateway(192, 168, 100, 1);
+IPAddress localIP(192, 168, 43, 50);
+IPAddress gateway(192, 168, 43, 1);
 IPAddress subnet(255, 255, 255, 0);
 
 IPAddress dns1(8, 8, 8, 8);
@@ -188,11 +188,22 @@ void render_hum(float val) {
   lcd.print(buff);
 }
 
+void render_wifi() {
+  lcd.setCursor(0, 1);
+  if(WiFi.status() == WL_CONNECTED) {
+    long rssi = WiFi.RSSI();
+    sprintf(buff, "%5d dBm", (int)rssi);
+    lcd.print(buff);
+  } else {
+    lcd.print("WiFi lost");
+  }
+}
+
 void menu() {
-  lcd.setCursor(0, 0);
-  lcd.print("Panel Gabungan");
   switch(state_panel) {
     case 0:
+      lcd.setCursor(0, 0);
+      lcd.print("Panel Gabungan");
       render_voltage(panel_sendiri.tegangan);
       if(d_btn < 0) {
         state_panel++;
@@ -200,6 +211,8 @@ void menu() {
       }
       break;
     case 1:
+      lcd.setCursor(0, 0);
+      lcd.print("Panel Gabungan");
       render_current(panel_sendiri.arus);
       if(d_btn < 0) {
         state_panel++;
@@ -207,6 +220,8 @@ void menu() {
       }
       break;
     case 2:
+      lcd.setCursor(0, 0);
+      lcd.print("Panel Gabungan");
       render_power(panel_sendiri.daya);
       if(d_btn < 0) {
         state_panel++;
@@ -214,6 +229,8 @@ void menu() {
       }
       break;
     case 3:
+      lcd.setCursor(0, 0);
+      lcd.print("Panel Gabungan");
       render_temp(panel_sendiri.suhu_panel);
       if(d_btn < 0) {
         state_panel++;
@@ -221,6 +238,8 @@ void menu() {
       }
       break;
     case 4:
+      lcd.setCursor(0, 0);
+      lcd.print("Panel Gabungan");
       render_lux(lux);
       if(d_btn < 0) {
         state_panel++;
@@ -228,6 +247,8 @@ void menu() {
       }
       break;
     case 5:
+      lcd.setCursor(0, 0);
+      lcd.print("Panel Gabungan");
       render_temp_env(env_temp);
       if(d_btn < 0) {
         state_panel++;
@@ -235,7 +256,18 @@ void menu() {
       }
       break;
     case 6:
+      lcd.setCursor(0, 0);
+      lcd.print("Panel Gabungan");
       render_hum(hum);
+      if(d_btn < 0) {
+        state_panel++;
+        lcd.clear();
+      }
+      break;
+    case 7:
+      lcd.setCursor(0, 0);
+      lcd.print("WiFi Strength");
+      render_wifi();
       if(d_btn < 0) {
         state_panel = 0;
         lcd.clear();
@@ -251,6 +283,7 @@ void sendToSheet(const char* url, const char* sheetName) {
   client->setInsecure(); 
 
   HTTPClient http;
+  http.setTimeout(10000);
   http.begin(*client, url);
   http.addHeader("Content-Type", "application/json");
 
