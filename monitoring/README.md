@@ -1,5 +1,5 @@
 # Performance Monitoring
-An arduino firmware, a part of my [Performance Monitoring]() Python program. The arduino will displaying the performance stats for CPU, RAM, GPU, and CPU temperature into an I2C LCD
+An arduino firmware, a part of my [Performance Monitoring](https://github.com/iqbal-apriza/python_projects/tree/main/system_monitoring) Python program. The arduino will displaying the performance stats for CPU, RAM, GPU, and CPU temperature into an I2C LCD
 
 ## LCD Preview
 ![LCD](../assets/lcd-display.png)
