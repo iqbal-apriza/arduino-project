@@ -4,6 +4,11 @@ An arduino firmware, a part of my [Performance Monitoring]() Python program. The
 ## LCD Preview
 ![LCD](../assets/lcd-display.png)
 
+- **Top Left:** CPU
+- **Bottom Left:** RAM
+- **Top Right:** GPU
+- **Bottom Right:** CPU Temperature
+
 ## Tested Device Spesification
 - **Arduino Board**: Arduino Uno R3
 - **LCD**: I2C LCD 16x2
